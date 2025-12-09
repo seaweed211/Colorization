@@ -84,11 +84,13 @@ python main.py
 ```
 
 ## 🤝 小组成员
-* Member 1
-* Member 2
-* Member 3
+* Member 1 黄懿茗
+* Member 2 梁娇
+* Member 3 严跃倩
+* Member 4 李灿
 
-## 📝 待改进方向 (To-Do)
-* [ ] 优化 MediaPipe 在侧脸情况下的分割精度。
-* [ ] 引入更平滑的边界处理 (Soft Masking) 以减少边缘锯齿。
-* [ ] 尝试 ViT (Vision Transformer) 替换 VGG 作为特征提取器。
+## 📝 To-Do
+* [ ] 优化 MediaPipe 在侧脸情况下的分割精度//尝试用其他语义分割或者训一个模型（segmentation）
+* [ ] 数据集！！！（1.最终测试集；2.如果要自己训segmentation还要标数据）
+* [ ] 量化评估方法
+
