@@ -18,8 +18,8 @@
 
 ### 1. 克隆项目
 ```bash
-git clone [https://github.com/YourUsername/Semantic-Colorization.git](https://github.com/YourUsername/Semantic-Colorization.git)
-cd Semantic-Colorization
+git clone [https://github.com/seaweed211/Colorization.git](https://github.com/seaweed211/Colorization.git)
+cd Colorization
 ```
 
 ### 2. 创建环境
@@ -40,8 +40,8 @@ pip install git+[https://github.com/openai/CLIP.git](https://github.com/openai/C
 ## 🚀 快速开始
 
 ### 1. 准备数据
-* 将**灰度原图**放入 `inputs/` 文件夹（例如 `avatar_gray.jpg`）。
-* 将**彩色参考图**放入 `styles/` 文件夹（例如 `avatar_blue.png`）。
+* 将**灰度原图**放入 `inputs/` 文件夹（例如 `in1.jpg`）。
+* 将**彩色参考图**放入 `styles/` 文件夹（例如 `ref1.jpg`）。
 * *注意：参考图最好包含清晰的人脸，以便提取肤色特征。*
 
 ### 2. 修改配置
@@ -49,8 +49,8 @@ pip install git+[https://github.com/openai/CLIP.git](https://github.com/openai/C
 
 ```python
 # main.py
-CONTENT_IMG_PATH = "inputs/avatar_gray.jpg"
-STYLE_IMG_PATH = "styles/avatar_blue.png"
+CONTENT_IMG_PATH = "inputs/in1.jpg"
+STYLE_IMG_PATH = "styles/ref1.jpg"
 ```
 
 ### 3. 运行脚本
@@ -60,7 +60,7 @@ python main.py
 
 ### 4. 查看结果
 运行结束后，结果将保存在 `outputs/` 文件夹中：
-* `final_result.jpg`: 最终上色结果。
+* `out1.jpg`: 最终上色结果。
 * `debug_masks/`: 包含 `skin`, `hair`, `bg` 的中间分割掩码（用于调试分割效果）。
 
 ## ⚙️ 关键参数说明 (main.py)
