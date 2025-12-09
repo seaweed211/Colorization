@@ -1,0 +1,21 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 环境变量
+.env
+.venv
+env/
+venv/
+
+# IDE 配置
+.idea/
+.vscode/
+
+# 输出的大图 (保留 outputs 文件夹，但不上传里面的 jpg/png)
+outputs/*.jpg
+outputs/*.png
+outputs/debug_masks/
+
+# 忽略 Mac 系统文件
+.DS_Store

@@ -1,0 +1,10 @@
+torch>=1.10.0
+torchvision>=0.11.0
+numpy<2.0.0
+opencv-python<4.11
+mediapipe
+ftfy
+regex
+tqdm
+Pillow
+# 注意: CLIP 需要单独安装，见 README
