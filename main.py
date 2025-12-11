@@ -1,6 +1,9 @@
 import argparse
 import torch
-from core.segmentation import MediaPipeSegmenter, GlobalSegmenter
+import cv2
+import numpy as np
+import os
+from core.segmentation import MediaPipeSegmenter, BiSeNetSegmenter,GlobalSegmenter
 from core.initialization import AdaINRegionAware, GrayStart
 from core.solvers import OptimizationSolver
 from core.guidance import CLIPGuidance
@@ -14,12 +17,54 @@ PROMPT_POOLS = {
     "bg": ["forest", "jungle", "dark background"]
 }
 
+def _save_mask_visualization(image_path, masks, width, height, prefix=''):
+    """
+    保存 mask 可视化图，用于调试分割效果
+    """
+    # 读取原图
+    img = cv2.imread(image_path)
+    if img is None:
+        return
+    img = cv2.resize(img, (width, height))
+    
+    # 提取 mask (从 tensor 转为 numpy)
+    skin = masks['skin'].squeeze().cpu().numpy()
+    hair = masks['hair'].squeeze().cpu().numpy()
+    bg = masks['bg'].squeeze().cpu().numpy()
+    
+    # 创建彩色 mask 叠加图
+    overlay = img.copy()
+    colored_mask = np.zeros_like(img)
+    
+    # 绿色 = 皮肤, 红色 = 头发, 蓝色 = 背景
+    colored_mask[skin > 0.5] = [0, 255, 0]  # 绿色
+    colored_mask[hair > 0.5] = [0, 0, 255]  # 红色
+    colored_mask[bg > 0.5] = [255, 128, 0]  # 蓝色
+    
+    # 半透明叠加
+    result = cv2.addWeighted(img, 0.6, colored_mask, 0.4, 0)
+    
+    # 保存
+    output_dir = 'outputs/debug_masks'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    base_name = os.path.basename(image_path).split('.')[0]
+    output_path = os.path.join(output_dir, f'{prefix}_{base_name}_mask_vis.jpg')
+    cv2.imwrite(output_path, result)
+    
+    # 也保存单独的 mask
+    cv2.imwrite(os.path.join(output_dir, f'{prefix}_{base_name}_skin.jpg'), (skin * 255).astype(np.uint8))
+    cv2.imwrite(os.path.join(output_dir, f'{prefix}_{base_name}_hair.jpg'), (hair * 255).astype(np.uint8))
+    cv2.imwrite(os.path.join(output_dir, f'{prefix}_{base_name}_bg.jpg'), (bg * 255).astype(np.uint8))
+    
+    print(f"    -> Mask 可视化已保存: {output_path}")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--content', default='inputs/in1.jpg')
     parser.add_argument('--style', default='styles/ref1.jpg')
     parser.add_argument('--output', default='outputs/out1.jpg')
-    parser.add_argument('--seg_method', default='mediapipe', help='分割方法: mediapipe | global')
+    parser.add_argument('--seg_method', default='bisenet', help='分割方法: mediapipe | bisenet | global | schp')
     parser.add_argument('--init_method', default='adain', help='初始化: adain | gray')
     parser.add_argument('--use_clip', action='store_true', help='是否使用 CLIP')
     args = parser.parse_args()
@@ -28,11 +73,12 @@ def main():
 
     # 1. 模块工厂 (Factory Pattern)
     # 你的组员可以在这里注册他们的新模型
+ 
     segmenters = {
-        'mediapipe': MediaPipeSegmenter(),
-        'global': GlobalSegmenter()
-        # 'deeplab': DeepLabSegmenter()  <-- 未来添加
-    }
+    'mediapipe': MediaPipeSegmenter(),
+    'bisenet': BiSeNetSegmenter(model_path='core/79999_iter.pth'),
+    'global': GlobalSegmenter()
+}
     initializers = {
         'adain': AdaINRegionAware(),
         'gray': GrayStart()
@@ -58,6 +104,11 @@ def main():
     print(f"--- 2. 执行分割 ({args.seg_method}) ---")
     c_masks = seg_module.get_masks(args.content, cw, ch)
     s_masks = seg_module.get_masks(args.style, cw, ch) # 假设参考图也用同样方法分割
+    
+    # 保存 mask 可视化（用于调试）
+    _save_mask_visualization(args.content, c_masks, cw, ch, prefix='content')
+    _save_mask_visualization(args.style, s_masks, cw, ch, prefix='style')
+    
     # 把 mask 转到 GPU
     for d in [c_masks, s_masks]:
         for k in d: d[k] = d[k].to(device)

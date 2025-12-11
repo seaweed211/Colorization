@@ -14,7 +14,8 @@ from mask_utils import get_semantic_masks
 CONTENT_IMG_PATH = "inputs/in1.jpg"   
 STYLE_IMG_PATH = "styles/ref1.jpg"     
 OUTPUT_PATH = "outputs/out1.jpg"
-IMG_SIZE = 512 
+IMG_SIZE = 512
+SEGMENTATION_METHOD = 'bisenet'  # 'mediapipe' 或 'bisenet' 
 
 # --- 权重策略 (配合新的 Gram 计算方式已调整) ---
 CONTENT_WEIGHT = 0.0     

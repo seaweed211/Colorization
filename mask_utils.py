@@ -4,7 +4,44 @@ import numpy as np
 import torch
 import os
 
-def get_semantic_masks(image_path, width, height):
+def get_semantic_masks(image_path, width, height, method='mediapipe'):
+    """
+    获取语义分割 Mask
+    
+    Args:
+        image_path: 图片路径
+        width: 目标宽度
+        height: 目标高度
+        method: 分割方法 ('mediapipe' 或 'bisenet')
+    
+    Returns:
+        dict: {"skin": tensor, "hair": tensor, "bg": tensor}
+    """
+    if method == 'bisenet':
+        return _get_masks_bisenet(image_path, width, height)
+    else:
+        return _get_masks_mediapipe(image_path, width, height)
+
+
+def _get_masks_bisenet(image_path, width, height):
+    """
+    BiSeNet 分割方法
+    """
+    from core.segmentation import BiSeNetSegmenter
+    
+    # 初始化 BiSeNet (使用单例模式避免重复加载)
+    if not hasattr(_get_masks_bisenet, 'segmenter'):
+        _get_masks_bisenet.segmenter = BiSeNetSegmenter(model_path='core/79999_iter.pth')
+    
+    masks = _get_masks_bisenet.segmenter.get_masks(image_path, width, height)
+    
+    # 保存调试图
+    _save_debug_masks(image_path, masks)
+    
+    return masks
+
+
+def _get_masks_mediapipe(image_path, width, height):
     """
     MediaPipe 增强版 (带调试与兜底)：
     1. 降低检测阈值，适应阿凡达/灰度图
@@ -98,21 +135,32 @@ def get_semantic_masks(image_path, width, height):
         final_skin_mask = person_mask
         final_hair_mask = np.zeros((height, width), dtype=np.uint8)
 
-    # --- Step D: 调试保存 (关键！) ---
-    # 保存 Mask 图片到 outputs 文件夹，请务必去查看！
-    debug_dir = "outputs/debug_masks"
-    if not os.path.exists(debug_dir): os.makedirs(debug_dir)
-    
-    base_name = os.path.basename(image_path)
-    cv2.imwrite(f"{debug_dir}/debug_{base_name}_skin.jpg", final_skin_mask * 255)
-    cv2.imwrite(f"{debug_dir}/debug_{base_name}_hair.jpg", final_hair_mask * 255)
-    cv2.imwrite(f"{debug_dir}/debug_{base_name}_bg.jpg", final_bg_mask)
-
     def to_tensor(m):
         return torch.from_numpy(m).float().unsqueeze(0).unsqueeze(0)
 
-    return {
+    masks = {
         "skin": to_tensor(final_skin_mask),
         "hair": to_tensor(final_hair_mask),
         "bg": to_tensor(final_bg_mask)
     }
+    
+    # 保存调试图
+    _save_debug_masks(image_path, masks)
+    
+    return masks
+
+
+def _save_debug_masks(image_path, masks):
+    """
+    保存调试用的 Mask 图片
+    """
+    debug_dir = "outputs/debug_masks"
+    if not os.path.exists(debug_dir): 
+        os.makedirs(debug_dir)
+    
+    base_name = os.path.basename(image_path)
+    
+    # 将 tensor 转为 numpy
+    for region in ['skin', 'hair', 'bg']:
+        mask_np = masks[region].squeeze().cpu().numpy()
+        cv2.imwrite(f"{debug_dir}/debug_{base_name}_{region}.jpg", (mask_np * 255).astype(np.uint8))
