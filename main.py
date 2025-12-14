@@ -73,7 +73,7 @@ def main():
  
     segmenters = {
     'mediapipe': MediaPipeSegmenter(),
-    'bisenet': BiSeNetSegmenter(model_path='core/79999_iter.pth'),
+    'bisenet':  BiSeNetSegmenter(model_path='core/weights/resnet34.pt', backbone='resnet34'),
     'global': GlobalSegmenter()
 }
     initializers = {
@@ -133,7 +133,7 @@ def main():
 
     # 5. 准备 Prompt 
     guidance_module = None # 默认为 None
-
+    target_features = None # 默认为 None
     if args.use_clip:
         print("--- 3.5 启用 CLIP 引导 ---")
         guidance_module = CLIPGuidance(device)
@@ -196,9 +196,6 @@ def main():
 
     # # 5. 保存
     # cv2.imwrite(args.output, final_blended)
-
-
-
 
 
 
