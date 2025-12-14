@@ -3,87 +3,82 @@ import torch.nn as nn
 from torchvision import transforms
 import clip
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 class CLIPGuidance:
-    def __init__(self):
-        print(">>> [Guidance] Loading CLIP model...")
+    def __init__(self, device):
+        self.device = device
+        print(f">>> [Guidance] Loading CLIP model on {device}...")
         self.model, _ = clip.load("ViT-B/32", device=device)
+        # CLIP 标准预处理参数
         self.norm = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), 
                                          (0.26862954, 0.26130258, 0.27577711))
 
-    def get_best_prompts(self, image_tensor, masks, candidate_dict):
-        # 1. 准备结果字典
-        result_prompts = {}
+    def get_image_embeddings(self, image_tensor, masks):
+        """
+        [新功能] 预先提取参考图(Style Image)各个区域的 CLIP 特征
+        这步只做一次，存下来给后面反复用。
+        """
+        ref_features = {}
+        
+        # 统一缩放到 CLIP 需要的尺寸
+        raw_in = nn.functional.interpolate(image_tensor, (224, 224), mode='bicubic')
 
-        # 2. 遍历每个区域 (skin, hair, bg)
-        for region, candidates in candidate_dict.items():
-            mask = masks[region]
-        
-            # 如果 mask 太小（比如没头发），直接用全图，防止报错
-            if mask.sum() < 10: 
-                masked_img = image_tensor
-            else:
-                masked_img = image_tensor * mask
-        
-            # 预处理图片 (224x224)
-            img_in = nn.functional.interpolate(masked_img, size=(224, 224), mode='bicubic')
-            img_in = self.norm(img_in) # 使用类里初始化好的 norm
-        
-            # 预处理文本
-            text_inputs = clip.tokenize(candidates).to(device)
-        
-            # 计算相似度
-            with torch.no_grad():
-                image_features = self.model.encode_image(img_in)
-                text_features = self.model.encode_text(text_inputs)
-            
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                text_features /= text_features.norm(dim=-1, keepdim=True)
-            
-                similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-                best_idx = similarity.argmax().item()
-            
-            # 记录最佳词
-            result_prompts[region] = candidates[best_idx]
-        
-        return result_prompts
+        with torch.no_grad():
+            for region, mask in masks.items():
+                # 忽略空的区域（比如参考图里没有头发，就不提取头发特征）
+                if mask.sum() < 100: 
+                    continue
 
-
-    # def calc_loss(self, img_tensor, masks, text_tokens):  <--- 这是你之前的错误写法
-    def calc_loss(self, img_tensor, masks, prompts_dict): # <--- 修正：变量名必须对应
-        loss = 0
-        device = img_tensor.device
-        
-        # 统一缩放原图
-        raw_in = nn.functional.interpolate(img_tensor, (224, 224), mode='bicubic')
-        
-        for region in ['skin', 'hair', 'bg']:
-            # 检查1：prompts_dict 里有没有这个区域的词？
-            # 检查2：mask 是否有效？
-            if region in prompts_dict and masks[region].sum() > 0:
+                # 1. 缩放 mask
+                m = nn.functional.interpolate(mask, (224, 224), mode='nearest')
                 
-                # --- A. 准备 Mask ---
-                m = nn.functional.interpolate(masks[region], (224, 224), mode='nearest')
-                
-                # --- B. 准备图像输入 ---
+                # 2. 抠图 + 归一化
+                # 注意：这里我们让背景变黑(0)，只保留该区域像素
                 region_in = self.norm(raw_in * m)
                 
-                # --- C. 计算图像特征 (Image Embedding) ---
-                img_emb = self.model.encode_image(region_in)
-                img_emb = img_emb / img_emb.norm(dim=-1, keepdim=True)
+                # 3. 提取特征
+                emb = self.model.encode_image(region_in)
+                emb = emb / emb.norm(dim=-1, keepdim=True) # 归一化特征向量
                 
-                # --- D. 处理文本 (Token化 + Text Embedding) ---
-                # 这里的 prompts_dict 就是你从外面传进来的 {'skin': 'blue skin', ...}
-                text_str = prompts_dict[region]
-                text_token = clip.tokenize([text_str]).to(device)
+                ref_features[region] = emb
+        
+        return ref_features
+
+    def calc_loss(self, img_tensor, masks, ref_features):
+        """
+        计算当前生成图与参考图特征的距离
+        img_tensor: 当前生成的图
+        masks: 当前输入图的 masks (Input Masks)
+        ref_features: 上面算好的参考图特征字典
+        """
+        loss = 0
+        count = 0
+        
+        # 统一缩放
+        raw_in = nn.functional.interpolate(img_tensor, (224, 224), mode='bicubic')
+        
+        # 遍历参考图里有的特征（交集逻辑）
+        for region, target_emb in ref_features.items():
+            
+            # 【关键逻辑】只有当输入图也有这个区域时，才计算 Loss
+            # 例子：参考图有头发(ref_features里有'hair')，但输入图是光头(masks['hair']为空) -> 跳过
+            if region in masks and masks[region].sum() > 100:
                 
-                # 编码文本特征 (detach 防止梯度回传到 CLIP 文本塔)
-                txt_emb = self.model.encode_text(text_token).detach()
-                txt_emb = txt_emb / txt_emb.norm(dim=-1, keepdim=True)
+                # 1. 准备当前图片的 Mask 区域
+                m = nn.functional.interpolate(masks[region], (224, 224), mode='nearest')
+                region_in = self.norm(raw_in * m)
                 
-                # --- E. 计算余弦距离损失 ---
-                similarity = torch.cosine_similarity(img_emb, txt_emb)
-                loss += (1 - similarity).mean()
+                # 2. 提取当前生成的特征
+                current_emb = self.model.encode_image(region_in)
+                current_emb = current_emb / current_emb.norm(dim=-1, keepdim=True)
                 
-        return loss
+                # 3. 计算 Cosine Loss (越相似，Similarity越大，Loss越小)
+                # target_emb 必须 detach，虽然从 get_image_embeddings 出来默认就是 detached，但保险起见
+                similarity = torch.cosine_similarity(current_emb, target_emb.detach())
+                
+                loss += (1.0 - similarity).mean()
+                count += 1
+                
+        if count > 0:
+            return loss / count
+        else:
+            return torch.tensor(0.0, device=img_tensor.device, requires_grad=True)

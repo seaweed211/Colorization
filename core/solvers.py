@@ -35,74 +35,87 @@ def gram_matrix(input):
     features = input.view(a * b, c * d)
     return torch.mm(features, features.t())
 
+def get_tv_loss(img):
+    """
+    计算 Total Variation Loss，用于平滑图像，去噪点
+    """
+    b, c, h, w = img.size()
+    h_tv = torch.pow((img[:, :, 1:, :] - img[:, :, :h-1, :]), 2).sum()
+    w_tv = torch.pow((img[:, :, :, 1:] - img[:, :, :, :w-1]), 2).sum()
+    return (h_tv + w_tv) / (b * c * h * w)
+
 # --- 求解器基类 ---
 class BaseSolver:
     def run(self, init_img, style_img, c_masks, s_masks, clip_selector, prompts):
         raise NotImplementedError
 
-# --- 具体的优化求解器 (VGG + LBFGS) ---
 class OptimizationSolver(BaseSolver):
-    def __init__(self, iterations=500, style_weight=1e4, clip_weight=5000):
+    # def __init__(self, iterations=500, content_weight=1.0, clip_weight=10.0, style_weight=0.0, tv_weight=1e-3):
+    def __init__(self, iterations=500, content_weight=150, clip_weight=0.0, style_weight=0.0, tv_weight=1e-3):
         self.iterations = iterations
-        self.style_weight = style_weight
-        self.clip_weight = clip_weight
+        self.content_weight = content_weight # 必须有，保证结构
+        self.clip_weight = clip_weight       # 核心驱动力
+        self.style_weight = style_weight     # 可选：如果还需要一点点纹理迁移，可以设为非0
+        self.tv_weight = tv_weight
+        
         self.vgg = VGGFeatures().to(device)
         self.norm = Normalization().to(device)
 
-    def run(self, init_img, style_img, c_masks, s_masks, clip_selector, prompts):
-        print(f">>> [Solver] 开始 VGG 迭代优化 ({self.iterations} steps)...")
+    def run(self, init_img, style_img, c_masks, s_masks, clip_selector, target_features):
+        print(f">>> [Solver] 开始优化 (使用 Adam)...")
         
-        # 1. 预计算 Target Gram
-        style_targets = {}
+        # 1. 准备目标特征
         with torch.no_grad():
-            style_feats = self.vgg(self.norm(style_img))
-            for i, feat in enumerate(style_feats):
-                # 全局兜底
-                style_targets[f"global_{i}"] = gram_matrix(feat)
-                for region in ['skin', 'hair', 'bg']:
-                    mask = nn.functional.interpolate(s_masks[region], size=feat.shape[2:], mode='nearest')
-                    if mask.sum() > 10:
-                        style_targets[f"{region}_{i}"] = gram_matrix(feat * mask)
-                    else:
-                        style_targets[f"{region}_{i}"] = style_targets[f"global_{i}"]
+            content_feats = self.vgg(self.norm(init_img))
+            content_target = content_feats[3].detach() # conv4_2
 
-        # 2. 准备优化
-        opt_img = init_img.clone().requires_grad_(True)
-        optimizer = optim.LBFGS([opt_img])
+        # 2. 设置优化变量
+        opt_img = init_img.clone().detach().requires_grad_(True)
         
-        run = [0]
-        while run[0] <= self.iterations:
-            def closure():
-                with torch.no_grad(): opt_img.clamp_(0, 1)
-                optimizer.zero_grad()
-                
-                curr_feats = self.vgg(self.norm(opt_img))
-                loss_style = 0
-                loss_clip = 0
-                
-                # Style Loss
-                for i, feat in enumerate(curr_feats):
-                    for region in ['skin', 'hair', 'bg']:
-                        if c_masks[region].sum() > 0:
-                            mask = nn.functional.interpolate(c_masks[region], size=feat.shape[2:], mode='nearest')
-                            curr_gram = gram_matrix(feat * mask)
-                            loss_style += nn.functional.mse_loss(curr_gram, style_targets[f"{region}_{i}"])
-                
-                # CLIP Loss
-                if clip_selector:
-                    loss_clip = clip_selector.calc_loss(opt_img, c_masks, prompts)
-                
-                total = loss_style * self.style_weight + loss_clip * self.clip_weight
-                total.backward()
-                
-                run[0] += 1
-                if run[0] % 50 == 0:
-                    s_val = loss_style.item() if hasattr(loss_style, 'item') else loss_style
-                    c_val = loss_clip.item() if hasattr(loss_clip, 'item') else loss_clip
-
-                    print(f"    Step {run[0]}: Style={s_val:.2f}, CLIP={c_val:.4f}")
-                    # print(f"    Step {run[0]}: Style={loss_style.item():.2f}, CLIP={loss_clip.item():.4f}")
-                return total
+        # 【核心修改】使用 Adam，学习率设为 0.02
+        optimizer = optim.Adam([opt_img], lr=0.02)
+        
+        # 3. 迭代循环 (Adam 不需要 closure)
+        import tqdm
+        pbar = tqdm.tqdm(range(self.iterations)) # 建议 iterations 设为 500-1000
+        
+        for i in pbar:
+            optimizer.zero_grad()
             
-            optimizer.step(closure)
+            # --- 强制约束像素在 [0, 1] 范围内 ---
+            # 这一步非常重要，防止像素值溢出导致 NaN
+            opt_img.data.clamp_(0, 1)
+            
+            # --- A. Content Loss ---
+            curr_feats = self.vgg(self.norm(opt_img))
+            loss_content = nn.functional.mse_loss(curr_feats[3], content_target)
+            
+            # --- B. CLIP Loss ---
+            loss_clip = torch.tensor(0.0).to(device)
+            if clip_selector and target_features:
+                loss_clip = clip_selector.calc_loss(opt_img, c_masks, target_features)
+                
+            # --- C. TV Loss (防止噪点) ---
+            # 如果你还没有定义 get_tv_loss，记得加上，或者暂时注释掉
+            loss_tv = torch.tensor(0.0).to(device) 
+            # loss_tv = get_tv_loss(opt_img) 
+
+            # --- D. 总 Loss ---
+            total_loss = (loss_content * self.content_weight) + \
+                         (loss_clip * self.clip_weight) + \
+                         (loss_tv * self.tv_weight)
+            
+            # --- E. 反向传播 ---
+            total_loss.backward()
+            
+            # 【核心修改】梯度裁剪 (Gradient Clipping)
+            # 这行代码是防止 NaN 的最后一道防线
+            torch.nn.utils.clip_grad_norm_([opt_img], max_norm=1.0)
+            
+            optimizer.step()
+        
+        # 最后一次 clamp 确保输出合法
+        with torch.no_grad():
+            opt_img.clamp_(0, 1)
+            
         return opt_img

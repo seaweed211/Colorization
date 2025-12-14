@@ -155,15 +155,19 @@ class BiSeNetSegmenter(BaseSegmenter):
         parsing = cv2.resize(parsing.astype(np.uint8), (width, height), 
                            interpolation=cv2.INTER_NEAREST)
         
-        # 创建三类 mask
-        hair_mask = (parsing == 17).astype(np.uint8)  # 头发
+        # 创建4类 mask
+        # 头发
+        hair_mask = (parsing == 17).astype(np.uint8)  
         
         # 皮肤：脸部 + 五官 + 脖子 (class 1-15)
         skin_indices = list(range(1, 16))
         skin_mask = np.isin(parsing, skin_indices).astype(np.uint8)
+
+        # 衣服
+        clothes_mask = ((parsing == 16) | (parsing == 18))
         
         # 背景：其他所有 (class 0, 16, 18)
-        bg_mask = (~(np.isin(parsing, skin_indices + [17]))).astype(np.uint8)
+        bg_mask = (~(np.isin(parsing, skin_indices + [16] + [17] + [18]))).astype(np.uint8)
         
         # 转换为 tensor
         def to_tensor(m):
@@ -172,6 +176,7 @@ class BiSeNetSegmenter(BaseSegmenter):
         return {
             "skin": to_tensor(skin_mask),
             "hair": to_tensor(hair_mask),
+            "clothes": to_tensor(clothes_mask),
             "bg": to_tensor(bg_mask)
         }
 

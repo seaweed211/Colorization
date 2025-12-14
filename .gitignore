@@ -16,6 +16,9 @@ venv/
 outputs/*.jpg
 outputs/*.png
 outputs/debug_masks/
+out/*.jpg
+out/*.png
+out/debug_masks/
 
 # 忽略 Mac 系统文件
 .DS_Store
