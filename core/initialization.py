@@ -9,19 +9,33 @@ class AdaINRegionAware(ColorInitializer):
     def process(self, content_img, style_img, c_masks, s_masks):
         print(">>> [Init] 执行 AdaIN 区域颜色移植...")
         res = content_img.clone()
-        for region in ['skin', 'hair', 'bg']:
+        
+        # 支持的区域列表（根据实际存在的mask动态调整）
+        regions = ['skin', 'hair', 'clothes', 'bg']
+        
+        for region in regions:
+            # 跳过不存在的区域
+            if region not in c_masks or region not in s_masks:
+                continue
+                
             c_mask, s_mask = c_masks[region], s_masks[region]
             if c_mask.sum() > 10 and s_mask.sum() > 10:
+                # 【修复】将 mask 扩展到和 image 相同的形状
+                # content_img: [1, 3, H, W], c_mask: [1, 1, H, W]
+                # 需要扩展为 [1, 3, H, W] 才能正确使用 masked_select
+                c_mask_expanded = c_mask.expand_as(content_img)
+                s_mask_expanded = s_mask.expand_as(style_img)
+                
                 # 提取像素
-                c_vals = torch.masked_select(content_img, c_mask.bool()).view(3, -1)
-                s_vals = torch.masked_select(style_img, s_mask.bool()).view(3, -1)
+                c_vals = torch.masked_select(content_img, c_mask_expanded.bool()).view(3, -1)
+                s_vals = torch.masked_select(style_img, s_mask_expanded.bool()).view(3, -1)
                 # 计算统计量
                 mu_c, std_c = c_vals.mean(1, keepdim=True), c_vals.std(1, keepdim=True)
                 mu_s, std_s = s_vals.mean(1, keepdim=True), s_vals.std(1, keepdim=True)
                 # 对齐
                 transferred = (c_vals - mu_c) / (std_c + 1e-6) * (std_s + 1e-6) + mu_s
                 # 填回
-                res.masked_scatter_(c_mask.bool(), transferred)
+                res.masked_scatter_(c_mask_expanded.bool(), transferred)
         return res
 
 class GrayStart(ColorInitializer):

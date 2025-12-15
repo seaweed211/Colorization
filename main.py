@@ -19,13 +19,19 @@ def _save_mask_visualization(image_path, masks, width, height, prefix=''):
     img = cv2.imread(image_path)
     if img is None:
         return
-    img = cv2.resize(img, (width, height))
     
     # 提取 mask (从 tensor 转为 numpy)
     skin = masks['skin'].squeeze().cpu().numpy()
     hair = masks['hair'].squeeze().cpu().numpy()
-    clothes = masks['clothes'].squeeze().cpu().numpy()
+    clothes = masks.get('clothes', masks['bg']).squeeze().cpu().numpy()  # 如果没有clothes，使用bg
     bg = masks['bg'].squeeze().cpu().numpy()
+    
+    # 获取 mask 的实际尺寸 (height, width)
+    mask_height, mask_width = skin.shape
+    
+    # Resize 图片以匹配 mask 尺寸
+    # 注意：cv2.resize 参数是 (width, height)
+    img = cv2.resize(img, (mask_width, mask_height))
     
     # 创建彩色 mask 叠加图
     overlay = img.copy()
@@ -73,9 +79,13 @@ def main():
  
     segmenters = {
     'mediapipe': MediaPipeSegmenter(),
-    'bisenet': BiSeNetSegmenter(model_path='core/79999_iter.pth'),
+    'bisenet':  BiSeNetSegmenter(model_path='core/weights/resnet34.pt', backbone='resnet34'),
     'global': GlobalSegmenter()
 }
+    
+    # 启用 BiSeNet 调试模式（保存原始 19 类 parsing）
+    if args.seg_method == 'bisenet':
+        segmenters['bisenet'].debug_mode = True
     initializers = {
         'adain': AdaINRegionAware(),
         'gray': GrayStart()
@@ -100,6 +110,10 @@ def main():
     style_img = torch.nn.functional.interpolate(style_img_raw, size=(ch, cw), mode='bicubic')
 
     # 3. 分割
+    # 【关键修复】get_masks 的参数是 (width, height)，但 tensor 的 size 是 (height, width)
+    # content_img.shape = [1, 3, ch, cw]，所以 mask 也应该是 (ch, cw)
+    # 但 get_masks(path, width, height) 内部会创建 (height, width) 的 mask
+    # 所以这里传参应该是 get_masks(path, cw, ch) 来得到 (ch, cw) 的 mask
     print(f"--- 2. 执行分割 ({args.seg_method}) ---")
     c_masks = seg_module.get_masks(args.content, cw, ch)
     s_masks = seg_module.get_masks(args.style, cw, ch) # 假设参考图也用同样方法分割
@@ -133,6 +147,7 @@ def main():
 
     # 5. 准备 Prompt 
     guidance_module = None # 默认为 None
+    target_features = None # 默认为 None
 
     if args.use_clip:
         print("--- 3.5 启用 CLIP 引导 ---")
@@ -196,9 +211,6 @@ def main():
 
     # # 5. 保存
     # cv2.imwrite(args.output, final_blended)
-
-
-
 
 
 
