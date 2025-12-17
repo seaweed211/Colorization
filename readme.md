@@ -81,7 +81,7 @@ python main.py
 ├── styles/           # 参考图像目录
 ├── outputs/          # 输出结果目录
 ├── main.py           # 主程序：包含 VGG 模型、优化循环与 Loss 计算
-├── mask_utils.py     # 工具库：包含 MediaPipe 分割逻辑与兜底机制
+├── mask_utils.py     # 工具库：包含 MediaPipe 、 SCHP、 BiSeNet 分割逻辑与兜底机制
 └── requirements.txt  # 依赖清单
 ```
 
