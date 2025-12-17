@@ -1,17 +1,36 @@
 # Semantic Region-Aware Style Transfer (SRAST)
 
-基于 **MediaPipe** + **SCHP** + **BiSeNet** 多模型混合语义分割、 **CLIP** 语义对齐与 **VGG** 风格迁移的灰度图像上色框架。
+基于 **模块化语义分割工厂**、**区域感知 AdaIN** 与 **CLIP 联合优化** 的灰度图像上色框架。
 
 ## 📖 项目简介
 
-本项目旨在解决传统风格迁移在**灰度图上色 (Colorization)** 任务中的结构丢失、颜色溢出和灰度陷阱问题。不同于全局风格迁移，本框架采用**区域感知 (Region-Aware)** 策略，利用高精度语义分割技术将图像解耦为 `Skin` (皮肤/身体)、`Hair` (毛发)、`Clothes` (衣物) 和 `Background` (背景) 等多个精细语义层，并利用 CLIP 模型进行跨模态颜色校准。
+本项目针对灰度图像上色任务，设计了一套包含 **预处理**、**语义分割**、**特征对齐**、**迭代优化**、**后处理** 的全流程技术框架。代码采用工程化的 **Factory Pattern (工厂模式)** 设计，集成了 **BiSeNet** (基于 ResNet 主干)、**SCHP** 与 **MediaPipe** 多种分割后端，能够根据不同场景（人脸特写/全身/复杂背景）灵活切换或组合。通过 `AdaINRegionAware` 类实现基于 Mask 的特征初始化，并利用 `OptimizationSolver` 结合 VGG 与 CLIP 损失函数进行像素级优化，最终通过 `smart_color_merge` 模块输出高保真结果。
+
+**核心技术模块（对应代码实现）：**
+
+1.  **多后端语义分割工厂 (Segmentation Factory)**：
+    *   代码实现了 `BiSeNetSegmenter`、`MediaPipeSegmenter` 等多个分割类。
+    *   **BiSeNet**：加载 `resnet34` 预训练权重，提供 19 类精细分割 (Skin, Hair, Eyes, Clothes 等)，专攻高精度人脸解析。
+    *   **MediaPipe 增强版**：集成 `FaceMesh` 与 `SelfieSegmentation`，并在代码中加入了 **“动态阈值降级”** 与 **“几何拆分兜底”** 机制（如 `chin_y` 下巴定位法），解决了阿凡达等非真实人脸无法检测的问题。
+    *   **Mask 优化**：引入 `refine_masks` 函数，通过 **形态学膨胀 (Dilate)** 与 **高斯模糊 (Blur)** 处理，消除了分割边缘的锯齿与缝隙。
+
+2.  **区域感知特征对齐 (Region-Aware Initialization)**：
+    *   核心类 `AdaINRegionAware`：摒弃了全局风格迁移，改为遍历 Mask 字典 (`for region in ['skin', 'hair', 'bg']`)。
+    *   **逻辑**：分别计算内容图与参考图在特定区域（如头发对头发）的均值与方差，进行统计量对齐。这作为优化的**冷启动 (Warm Start)**，有效防止了颜色溢出（如背景色染到人脸）。
+
+3.  **CLIP 语义与 VGG 风格联合优化 (Hybrid Guidance Solver)**：
+    *   核心类 `OptimizationSolver` 与 `CLIPGuidance`。
+    *   **VGG Loss**：确保生成的纹理与参考图风格一致。
+    *   **CLIP Loss**：若启用 `--use_clip`，代码会提取参考图的视觉 Embedding，约束生成结果在语义层面（如“蓝色的皮肤”）与参考图对齐，支持跨域风格迁移。
+
+4.  **亮度保持与智能融合 (Smart Post-Processing)**：
+    *   核心函数 `smart_color_merge` 与 `transfer_color_presolve_luminance`。
+    *   **Alpha Blending**：代码中实现了基于 Mask 羽化的透明度融合算法，处理边缘过渡。
+    *   **YUV 空间重组**：将生成图像的色度信息 (Color) 与原图的亮度信息 (Luminance) 分离并重组，确保在上色的同时，原图的光影结构和高清纹理不丢失。
 
 
-**核心特性：**
-1.  **高精度混合语义分割**：构建了集成 BiSeNet、SCHP 与 MediaPipe 的混合分割系统。利用 BiSeNet 的双路架构捕捉面部五官的高频细节，结合 SCHP 的自校正机制处理复杂人体结构，并辅以 MediaPipe 进行关键点定位。相比单一几何规则，显著提升了对发丝边缘、遮挡区域及细微五官的分割鲁棒性。
-2.  **区域感知初始化**：：在优化前，基于精细的语义掩码（Mask）进行 **区域级 AdaIN** 统计量对齐。强制将参考图的颜色特征精准“移植”到原图对应区域，解决优化起点的“灰度陷阱”。
-3.  **CLIP 语义引导**：利用 CLIP 视觉-语言模型，自动为每个区域匹配最佳颜色描述（如 "Blue Skin", "Black Hair"），实现风格化与语义逻辑的统一。
-4.  **亮度保持融合**：最终输出采用 YUV 空间融合，在注入色彩的同时，完美保留原图的高清纹理与光影细节。
+
+
 
 
 ## 🛠️ 环境安装
