@@ -1,10 +1,9 @@
-# Semantic Region-Aware Style Transfer (SRAST)
+基于 CLIP 语义引导与 VGG 结构约束的区域感知图像风格迁移方法
 
-基于 **模块化语义分割工厂**、**区域感知 AdaIN** 与 **CLIP 联合优化** 的灰度图像上色框架。
 
 ## 📖 项目简介
 
-本项目针对灰度图像上色任务，设计了一套包含 **预处理**、**语义分割**、**特征对齐**、**迭代优化**、**后处理** 的全流程技术框架。代码采用工程化的 **Factory Pattern (工厂模式)** 设计，集成了 **BiSeNet** (基于 ResNet 主干)、**SCHP** 与 **MediaPipe** 多种分割后端，能够根据不同场景（人脸特写/全身/复杂背景）灵活切换或组合。通过 `AdaINRegionAware` 类实现基于 Mask 的特征初始化，并利用 `OptimizationSolver` 结合 VGG 与 CLIP 损失函数进行像素级优化，最终通过 `smart_color_merge` 模块输出高保真结果。
+本项目针对灰度图像上色任务，设计了一套包含 **预处理**、**语义分割**、**特征对齐**、**迭代优化**、**后处理** 的全流程技术框架。代码采用工程化的 **Factory Pattern** 设计：人脸分割部分集成了 **BiSeNet** (基于ResNet)、**SCHP** 与 **MediaPipe** 多种分割后端，能够根据不同场景（人脸特写/全身/复杂背景）灵活切换或组合。图像上色部分则通过 `AdaINRegionAware` 类实现基于 Mask 的特征初始化，并利用 `OptimizationSolver` 结合 VGG 与 CLIP 损失函数进行像素级优化。最终加入后处理模块 `smart_color_merge` 输出高保真结果。
 
 **核心技术模块（对应代码实现）：**
 
@@ -58,6 +57,12 @@ pip install -r requirements.txt
 pip install git+[https://github.com/openai/CLIP.git](https://github.com/openai/CLIP.git)
 ```
 
+### 4. 数据集下载链接
+①FFHQ：https://github.com/NVlabs/ffhq-dataset
+②Goblin Portraits：https://www.kaggle.com/datasets/jerimee/goblin-portraits
+
+
+
 ## 🚀 快速开始
 
 ### 1. 准备数据
@@ -104,14 +109,11 @@ python main.py
 └── requirements.txt  # 依赖清单
 ```
 
-## 🤝 小组成员
-* Member 1 黄懿茗
-* Member 2 梁娇
-* Member 3 严跃倩
-* Member 4 李灿
+## 🤝 小组成员及分工
+* 黄懿茗 25216731 前期方法调研、上色部分内容和展示、视频制作
+* 梁娇 25216732 前期方法调研、分割部分内容和展示、PPT部分美化
+* 严跃倩 25216754 前期方法调研、经典方法复现、实验结果展示
+* 李灿 25216743 前期方法调研、PPT主要制作、选题和背景展示
 
-## 📝 To-Do
-* [ ] 优化 MediaPipe 在侧脸情况下的分割精度//尝试用其他语义分割或者训一个模型（segmentation）
-* [ ] 数据集！！！（1.最终测试集；2.如果要自己训segmentation还要标数据）
-* [ ] 量化评估方法
+
 
